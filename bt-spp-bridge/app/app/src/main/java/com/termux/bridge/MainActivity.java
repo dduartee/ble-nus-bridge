@@ -30,7 +30,19 @@ public class MainActivity extends Activity implements View.OnClickListener {
     private HashMap<String, Boolean> seenDevices = new HashMap<>();
     private boolean isScanning = false;
 
-    private BroadcastReceiver discoveryReceiver = new BroadcastReceiver() {
+    // ── Named inner classes (d8 requer, não suporta anônimas) ──
+
+    private class ScanClickListener implements View.OnClickListener {
+        public void onClick(View v) { startDiscovery(); }
+    }
+
+    private class DeviceClickListener implements View.OnClickListener {
+        private final BluetoothDevice device;
+        DeviceClickListener(BluetoothDevice device) { this.device = device; }
+        public void onClick(View v) { connectToDevice(device); }
+    }
+
+    private class DiscoveryReceiver extends BroadcastReceiver {
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             if (BluetoothDevice.ACTION_FOUND.equals(action)) {
@@ -45,7 +57,9 @@ public class MainActivity extends Activity implements View.OnClickListener {
                 statusText.setText("📱 " + seenDevices.size() + " dispositivo(s) encontrado(s)");
             }
         }
-    };
+    }
+
+    private BroadcastReceiver discoveryReceiver = new DiscoveryReceiver();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,9 +105,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         // Scan button
         Button scanBtn = new Button(this);
         scanBtn.setText("🔍 Escanear dispositivos");
-        scanBtn.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { startDiscovery(); }
-        });
+        scanBtn.setOnClickListener(new ScanClickListener());
         root.addView(scanBtn);
 
         // Refresh paired button
@@ -209,9 +221,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ));
-        btn.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { connectToDevice(device); }
-        });
+        btn.setOnClickListener(new DeviceClickListener(device));
         deviceList.addView(btn);
     }
 
