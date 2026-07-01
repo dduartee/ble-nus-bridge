@@ -1,7 +1,9 @@
 # 🏗️ Build de APK Android Nativo no Termux — Guia Completo
 
+> **Nota:** O app foi migrado de BT SPP Classic para BLE NUS (Nordic UART Service). O fluxo de build permanece idêntico.
+
 > Como compilar um APK inteiro dentro do Termux, sem PC, sem root, sem Android Studio.
-> Projeto de referência: BT SPP Bridge (Bluetooth → TCP)
+> Projeto de referência: BLE NUS Bridge (BLE GATT → TCP)
 > Dispositivo: Samsung Galaxy S23 (Android 14, SDK 36, ARM64)
 
 ---
@@ -12,13 +14,13 @@
 ~/projetos/bt-spp-bridge/
 ├── README.md              ← este arquivo
 ├── TERMUX_API_GUIA.md     ← referência completa da API do Termux
-├── esp32_bt_temp.ino      ← código ESP32 Bluetooth SPP
+├── esp32_bt_temp.ino      ← código ESP32 Bluetooth (SPP legado / BLE NUS)
 ├── app/                   ← código fonte do APK
 │   ├── build.sh           ← script de build (1 comando)
 │   ├── PLANO.md           ← 20 erros com causa/solução (histórico vivo)
 │   ├── SUCESSO.md         ← documentação completa do projeto
 │   ├── DEBUG_RELATORIO.md ← análise de debug da comunicação
-│   ├── GUIA_T470.md       ← guia do servidor SPP no notebook
+│   ├── GUIA_T470.md       ← guia original do servidor (SPP legado)
 │   ├── INVESTIGACAO_T470.md ← checkpoints de debug
 │   ├── REVIEW.json        ← análise estruturada de erros
 │   ├── build/             ← APK buildado
@@ -26,8 +28,8 @@
 │       ├── AndroidManifest.xml
 │       ├── res/values/strings.xml
 │       └── java/com/termux/bridge/
-│           ├── MainActivity.java      ← UI (lista pareados + scan)
-│           └── BridgeService.java     ← serviço foreground (BT ↔ TCP)
+│           ├── MainActivity.java      ← UI (scan BLE + preview dados)
+│           └── BridgeService.java     ← GATT NUS Client (BLE ↔ TCP)
 └── bt_spp_java_helper/    ← helper Java (não usado no build final)
 ```
 
@@ -129,8 +131,8 @@ bash build.sh
 | 6 | **minSdkVersion >= 26** | Android 14 bloqueia instalação de apps antigos |
 | 7 | **android:exported** na Activity | "problem parsing the package" |
 | 8 | **android:foregroundServiceType** | Crash no startForeground() |
-| 9 | **BLUETOOTH_CONNECT em runtime** | SecurityException ao criar socket |
-| 10 | **ACCESS_FINE_LOCATION** no scan | Scan retorna 0 dispositivos |
+| 9 | **BLUETOOTH_SCAN + BLUETOOTH_CONNECT em runtime** | SecurityException ao escanear/conectar GATT |
+| 10 | **ACCESS_FINE_LOCATION** no scan BLE | Scan retorna 0 dispositivos |
 | 11 | **Tema Material no AndroidManifest** | Crash ao iniciar Activity |
 | 12 | **FOREGROUND_SERVICE_CONNECTED_DEVICE** | Crash ao iniciar serviço |
 | 13 | **Paths absolutos** no script | apksigner "file not found" |
@@ -162,11 +164,11 @@ bash build.sh
 ### `App not compatible with your phone`
 → minSdkVersion muito baixo. **Use >= 26.**
 
-### Scan não retorna nada
-→ Falta `ACCESS_FINE_LOCATION` em runtime. **Adicione no requestPermissions.**
+### Scan BLE não retorna nada
+→ Falta `ACCESS_FINE_LOCATION` + `BLUETOOTH_SCAN` em runtime. **Adicione no requestPermissions.**
 
-### Crash ao conectar Bluetooth
-→ `BLUETOOTH_CONNECT` não foi solicitado em runtime. **Adicione.**
+### Crash ao conectar BLE GATT
+→ `BLUETOOTH_CONNECT` não foi solicitado em runtime, ou MTU request antes de discoverServices. **Adicione permissão e verifique ordem.**
 
 ---
 
@@ -183,16 +185,17 @@ cp ~/projetos/bt-spp-bridge/app/build/bt-spp-bridge.apk /storage/emulated/0/
 
 ## 🚀 Uso
 
-### Com ESP32:
-1. Programar ESP32 com `esp32_bt_temp.ino`
-2. Parear via Bluetooth do Android
-3. Abrir BT SPP Bridge → tocar no ESP32
-4. `nc localhost 8090`
+### Com ESP32 (BLE NUS):
+1. Programar ESP32 com firmware BLE NUS (track-kinesis)
+2. Abrir o app → escaneia dispositivos BLE automaticamente
+3. Tocar em "track-kinesis" na lista
+4. Bridge BLE NUS conecta via GATT (notify + write)
+5. `nc localhost 8090`
 
-### Com notebook Linux:
+### Com notebook Linux (legado SPP):
 1. Rodar servidor SPP no notebook (ver `GUIA_T470.md`)
 2. Parear via Bluetooth do Android
-3. Abrir BT SPP Bridge → escanear → tocar no notebook
+3. Abrir app → escanear → tocar no notebook
 4. `nc localhost 8090`
 
 ---
@@ -207,7 +210,7 @@ cp ~/projetos/bt-spp-bridge/app/build/bt-spp-bridge.apk /storage/emulated/0/
 | minSdkVersion | 26 |
 | targetSdkVersion | 33 |
 | tamanho | ~20 KB |
-| permissões | INTERNET, BLUETOOTH×4, LOCATION×2, FOREGROUND_SERVICE×2, POST_NOTIFICATIONS |
+| permissões | BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE, BLUETOOTH, BLUETOOTH_ADMIN, LOCATION×2, INTERNET, FOREGROUND_SERVICE×2, POST_NOTIFICATIONS |
 
 ---
 
@@ -216,6 +219,6 @@ cp ~/projetos/bt-spp-bridge/app/build/bt-spp-bridge.apk /storage/emulated/0/
 - [PLANO.md](app/PLANO.md) — 20 erros documentados com timeline
 - [SUCESSO.md](app/SUCESSO.md) — Documentação completa do projeto
 - [DEBUG_RELATORIO.md](app/DEBUG_RELATORIO.md) — Análise de debug sem suposições
-- [GUIA_T470.md](app/GUIA_T470.md) — Servidor SPP no Linux
+- [GUIA_T470.md](app/GUIA_T470.md) — Servidor SPP legado no Linux
 - [INVESTIGACAO_T470.md](app/INVESTIGACAO_T470.md) — Checkpoints de debug T470
 - [TERMUX_API_GUIA.md](TERMUX_API_GUIA.md) — Guia completo Termux:API

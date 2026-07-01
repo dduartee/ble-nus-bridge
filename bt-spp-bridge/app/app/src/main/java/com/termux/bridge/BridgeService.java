@@ -7,7 +7,18 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothSocket;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
+import android.bluetooth.BluetoothGattService;
+import android.bluetooth.BluetoothProfile;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanFilter;
+import android.bluetooth.le.ScanResult;
+import android.bluetooth.le.ScanSettings;
+import android.os.ParcelUuid;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
@@ -16,23 +27,28 @@ import android.os.IBinder;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.lang.reflect.Method;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class BridgeService extends Service {
 
-    private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
-    // UUID custom do T470 (SPP via BlueZ D-Bus)
-    private static final UUID SPP_UUID_CUSTOM = UUID.fromString("977c4a04-bf68-4c23-bf49-dac84b22d774");
-    private static final UUID[] SPP_UUIDS = {SPP_UUID, SPP_UUID_CUSTOM};
+    // Nordic UART Service (NUS) UUIDs
+    private static final UUID NUS_SERVICE_UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
+    private static final UUID NUS_TX_CHAR_UUID = UUID.fromString("6E400002-B5A3-F393-E0A9-E50E24DCCA9E"); // ESP32 -> phone (notify)
+    private static final UUID NUS_RX_CHAR_UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E"); // phone -> ESP32 (write)
+    private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB");
     private static final int TCP_PORT = 8090;
     private static final String CHANNEL_ID = "bridge_service";
     private static final int NOTIFY_ID = 1;
 
-    private BluetoothSocket btSocket;
+    private BluetoothGatt bluetoothGatt;
+    private BluetoothGattCharacteristic txCharacteristic;
+    private BluetoothGattCharacteristic rxCharacteristic;
+    private boolean bleReady = false;
     private ServerSocket tcpServer;
     private Socket tcpClient;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -55,77 +71,152 @@ public class BridgeService extends Service {
             android.util.Log.e("BridgeService", "startForeground failed: " + e.getMessage());
             // Continue anyway on older Android or if notification permission not granted
         }
-        new Thread(new BtConnector(address), "BT-Connect").start();
+        new Thread(new BleConnector(), "BLE-Scan").start();
         return START_STICKY;
     }
 
     // ---- Named inner classes (D8 crashes on anonymous classes) ----
 
-    private class BtConnector implements Runnable {
-        private final String address;
-        BtConnector(String address) { this.address = address; }
+    private class BleConnector implements Runnable {
+        BleConnector() { }
 
         public void run() {
             try {
                 BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-                BluetoothDevice device = adapter.getRemoteDevice(address);
-
-                // Tenta múltiplos UUIDs (padrão SPP + custom T470)
-                Exception lastError = null;
-                for (UUID uuid : SPP_UUIDS) {
-                    try {
-                        btSocket = device.createRfcommSocketToServiceRecord(uuid);
-                        adapter.cancelDiscovery();
-                        btSocket.connect();
-                        lastError = null;
-                        break;
-                    } catch (IOException e) {
-                        lastError = e;
-                        try { if (btSocket != null) btSocket.close(); } catch (Exception ignored) {}
-                        btSocket = null;
-                    }
+                if (adapter == null || !adapter.isEnabled()) {
+                    updateNotification("Bluetooth desligado");
+                    return;
                 }
 
-                // Fallback: conexão direta via canal RFCOMM (bypass SDP)
-                if (btSocket == null) {
-                    for (int channel = 1; channel <= 30; channel++) {
-                        try {
-                            Method m = device.getClass().getMethod("createRfcommSocket", int.class);
-                            btSocket = (BluetoothSocket) m.invoke(device, channel);
-                            adapter.cancelDiscovery();
-                            btSocket.connect();
-                            lastError = null;
-                            break;
-                        } catch (Exception e) {
-                            try { if (btSocket != null) btSocket.close(); } catch (Exception ignored) {}
-                            btSocket = null;
+                BluetoothLeScanner scanner = adapter.getBluetoothLeScanner();
+                if (scanner == null) {
+                    updateNotification("BLE scanner indisponivel");
+                    return;
+                }
+
+                updateNotification("Procurando track-kinesis...");
+
+                /* No UUID filter — ESP32 advertises UUID in scan response
+                 * (separate 31-byte budget), not in main advertising data.
+                 * Filter by device name in onScanResult below. */
+                ScanSettings settings = new ScanSettings.Builder()
+                    .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                    .build();
+
+                ScanCallback scanCallback = new ScanCallback() {
+                    @Override
+                    public void onScanResult(int callbackType, ScanResult result) {
+                        BluetoothDevice device = result.getDevice();
+                        String name = device.getName();
+                        if (name != null && name.equals("track-kinesis")) {
+                            scanner.stopScan(this);
+                            updateNotification("Conectando " + name + "...");
+                            bluetoothGatt = device.connectGatt(BridgeService.this, false, gattCallback);
                         }
                     }
-                }
 
-                if (lastError != null) throw new IOException(lastError);
+                    @Override
+                    public void onScanFailed(int errorCode) {
+                        updateNotification("Scan falhou: " + errorCode);
+                    }
+                };
 
-                updateNotification("📱 " + device.getName() + " | 🔌 TCP :" + TCP_PORT);
-                startTcpBridge();
-                running.set(true);
+                scanner.startScan(null, settings, scanCallback);
 
-                // BT → TCP reader
-                InputStream btIn = btSocket.getInputStream();
-                byte[] buf = new byte[1024];
-                while (running.get()) {
-                    int len = btIn.read(buf);
-                    if (len < 0) break;
-                    sendToTcp(buf, len);
-                }
             } catch (SecurityException e) {
-                updateNotification("❌ Permissão Bluetooth negada");
-            } catch (IOException e) {
-                updateNotification("❌ Erro: " + e.getMessage());
-            } finally {
-                stop();
+                updateNotification("Permissao Bluetooth negada");
+            } catch (Exception e) {
+                updateNotification("Erro: " + e.getMessage());
             }
         }
     }
+
+    private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
+        @Override
+        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                bleReady = false;
+                // Request larger MTU so full IMU frames (~110 bytes) fit in one notification.
+                // Default MTU is 23 bytes (20-byte payload) — way too small.
+                // discoverServices() is called from onMtuChanged callback.
+                gatt.requestMtu(256);
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                bleReady = false;
+                txCharacteristic = null;
+                rxCharacteristic = null;
+                updateNotification("Desconectado");
+                // Restart scanning
+                new Thread(new BleConnector(), "BLE-Scan").start();
+            }
+        }
+
+        @Override
+        public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
+            // MTU negotiated — now discover services
+            gatt.discoverServices();
+        }
+
+        @Override
+        public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                updateNotification("Servicos nao encontrados");
+                return;
+            }
+
+            BluetoothGattService nusService = gatt.getService(NUS_SERVICE_UUID);
+            if (nusService == null) {
+                updateNotification("NUS service nao encontrado");
+                return;
+            }
+
+            txCharacteristic = nusService.getCharacteristic(NUS_TX_CHAR_UUID);
+            rxCharacteristic = nusService.getCharacteristic(NUS_RX_CHAR_UUID);
+
+            if (txCharacteristic == null) {
+                updateNotification("TX char nao encontrado");
+                return;
+            }
+
+            // Enable notifications on TX characteristic
+            gatt.setCharacteristicNotification(txCharacteristic, true);
+            BluetoothGattDescriptor cccd = txCharacteristic.getDescriptor(CCCD_UUID);
+            if (cccd != null) {
+                cccd.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                gatt.writeDescriptor(cccd);
+            }
+
+            // Request high-priority connection for low latency
+            gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
+
+            bleReady = true;
+            BluetoothDevice device = gatt.getDevice();
+            updateNotification(device.getName() + " | TCP :" + TCP_PORT);
+            startTcpBridge();
+            running.set(true);
+        }
+
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+            if (characteristic.getUuid().equals(NUS_TX_CHAR_UUID)) {
+                byte[] data = characteristic.getValue();
+                if (data != null && data.length > 0) {
+                    sendToTcp(data, data.length);
+
+                    // Broadcast to MainActivity for display
+                    Intent dataIntent = new Intent("DATA_RECEIVED");
+                    String preview = new String(data, 0, Math.min(data.length, 120), StandardCharsets.UTF_8);
+                    dataIntent.putExtra("preview", preview);
+                    dataIntent.putExtra("bytes", data.length);
+                    sendBroadcast(dataIntent);
+                }
+            }
+        }
+
+        @Override
+        public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+            // CCCD written — notifications are now active
+        }
+    };
 
     private class TcpAcceptor implements Runnable {
         public void run() {
@@ -145,12 +236,14 @@ public class BridgeService extends Service {
             try {
                 InputStream tcpIn = tcpClient.getInputStream();
                 byte[] buf = new byte[1024];
-                OutputStream btOut = btSocket.getOutputStream();
                 while (running.get()) {
                     int len = tcpIn.read(buf);
                     if (len < 0) break;
-                    btOut.write(buf, 0, len);
-                    btOut.flush();
+                    if (rxCharacteristic != null && bleReady) {
+                        byte[] txData = java.util.Arrays.copyOfRange(buf, 0, len);
+                        rxCharacteristic.setValue(txData);
+                        bluetoothGatt.writeCharacteristic(rxCharacteristic);
+                    }
                 }
             } catch (IOException e) { /* client disconnected */ }
         }
@@ -175,7 +268,7 @@ public class BridgeService extends Service {
 
     private void stop() {
         running.set(false);
-        try { if (btSocket != null) btSocket.close(); } catch (Exception ignored) {}
+        try { if (bluetoothGatt != null) bluetoothGatt.close(); } catch (Exception ignored) {}
         try { if (tcpServer != null) tcpServer.close(); } catch (Exception ignored) {}
         try { if (tcpClient != null) tcpClient.close(); } catch (Exception ignored) {}
         stopForeground(true);
@@ -207,7 +300,7 @@ public class BridgeService extends Service {
         int flags = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
         PendingIntent pi = PendingIntent.getActivity(this, 0, intent, flags);
         return new Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("BT SPP Bridge")
+            .setContentTitle("BLE NUS Bridge")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_share)
             .setContentIntent(pi)

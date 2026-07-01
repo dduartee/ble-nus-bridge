@@ -1,33 +1,17 @@
-# 🔵 BT SPP Bridge — Proof of Concept
+# 🔵 BLE NUS Bridge — Proof of Concept
 
-> **Comunicação Bluetooth SPP via Android + Termux + Linux, com desenvolvimento assistido por IA.**
+> **Comunicação Bluetooth BLE NUS via Android + Termux + Linux, com desenvolvimento assistido por IA.**
 >
-> Android app nativo (build no Termux, sem PC) atua como ponte Bluetooth ↔ TCP.
-> Permite que o Termux leia/escreva dados de qualquer dispositivo Bluetooth SPP
-> (ESP32, sensores, outro notebook) via `nc localhost 8090`.
+> Android app nativo (build no Termux, sem PC) atua como ponte BLE NUS ↔ TCP.
+> Permite que o Termux leia/escreva dados de dispositivos BLE GATT (ESP32 como NUS Server)
+> via `nc localhost 8090`.
 
 ---
 
 ## 🎯 Conceito
 
 ```
-┌──────────────┐   Bluetooth SPP    ┌─────────────────┐   TCP :8090    ┌──────────┐
-│  ESP32       │◄──────────────────►│  S23 (Android)   │◄─────────────►│  Termux  │
-│  sensor temp │   RFCOMM UUID      │  BT SPP Bridge   │  localhost     │  nc / py │
-└──────────────┘                    │  (Foreground Svc)│                └──────────┘
-                                    └────────┬────────┘
-                                             │
-                                    Bluetooth SPP (canal 4)
-                                             │
-                                    ┌────────▼────────┐
-                                    │  T470 (Linux)    │
-                                    │  spp_server.py   │
-                                    └────────┬────────┘
-                                             │
-                                    ┌────────▼────────┐
-                                    │  AI Agent (pi)   │
-                                    │  stdin/stdout    │
-                                    └─────────────────┘
+ESP32-S3 (NUS Server) ←→ BLE NUS (GATT Notify/Write) ←→ Android S23 (BLE Bridge App) ←→ TCP :8090 ←→ Termux (Python session_recorder.py)
 ```
 
 **Fluxo:** Dados trafegam bidirecionalmente entre qualquer ponta — o app Android é o hub central que traduz Bluetooth ↔ TCP.
@@ -42,13 +26,8 @@ spp-t470/                          ← repositório raiz
 ├── README.md                      ← este documento
 ├── SUCCESS_REPORT.md              ← relatório de debug T470↔S23
 │
-├── 🐧 LADO T470 (Linux) ─────────────────────────────────
-│   ├── spp_common.py              ← bridge(), constantes, helpers
-│   ├── spp_server.py              ← servidor SPP (--no-sdp p/ raw)
-│   ├── spp_client.py              ← modo reverso (T470→S23)
-│   └── setup_bt.py                ← prepara adapter Bluetooth
-│
 └── 📱 LADO S23 (Android/Termux) ─────────────────────────
+    (App migrado de BT SPP Classic para BLE NUS — Nordic UART Service)
     └── bt-spp-bridge/
         ├── README.md              ← guia de build no Termux
         ├── TERMUX_API_GUIA.md     ← referência Termux:API
@@ -71,17 +50,9 @@ spp-t470/                          ← repositório raiz
 
 ## 🚀 Uso Rápido
 
-### 1. T470 — Servidor SPP
+### 1. Build do APK
 
-```bash
-cd spp-t470
-python3 setup_bt.py          # garantir discoverable (1x)
-python3 spp_server.py        # iniciar servidor
-```
-
-### 2. Build do APK
-
-**Opção A — No Manjaro (T470):**
+**Opção A — No Manjaro:**
 ```bash
 cd bt-spp-bridge/app
 bash build.sh                # gera build/bt-spp-bridge.apk (20 KB)
@@ -95,13 +66,14 @@ cd ~/projetos/bt-spp-bridge/app
 bash build.sh                # build 100% nativo no Termux
 ```
 
-**Setup Manjaro (já feito):** JDK 21 Temurin (`~/jdk21/`), Android SDK (`~/android-sdk/`), build-tools 30.0.3, platforms 33+36.
+**Setup Manjaro (já feito):** JDK 21 Temurun (`~/jdk21/`), Android SDK (`~/android-sdk/`), build-tools 30.0.3, platforms 33+36.
 
-### 3. S23 — App + Termux
+### 2. S23 — App + Termux
 
 ```bash
 # Instalar pelo gerenciador de arquivos
-# Abrir BT SPP Bridge → escanear → tocar no t470
+# Abrir o app → escaneia BLE → tocar em "track-kinesis" na lista
+# Bridge BLE NUS conecta automaticamente
 # No Termux:
 nc localhost 8090            # bridge ativa!
 ```
@@ -109,8 +81,9 @@ nc localhost 8090            # bridge ativa!
 ### 3. Teste bidirecional
 
 ```
-Termux:  digita "hello do s23"  → aparece no terminal T470 ✅
-T470:    digita "oi do t470"    → aparece no nc do Termux ✅
+ESP32:    "track-kinesis" enviando dados IMU via BLE NUS notify
+Termux:   recebe dados JSON via TCP :8090 ✅
+Termux:   envia >cmd:start → BLE NUS write → ESP32 recebe ✅
 ```
 
 ---
@@ -125,11 +98,10 @@ Todo o projeto foi implementado por **agentes pi** trabalhando em paralelo:
 │                                                      │
 │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐ │
 │  │ Agente T470  │  │ Agente S23   │  │ Reviewer    │ │
-│  │ (Linux/SPP)  │  │ (Android)    │  │ (fanout)    │ │
+│  │ (Linux/BLE)  │  │ (Android)    │  │ (fanout)    │ │
 │  │              │  │              │  │             │ │
-│  │ spp_server   │  │ APK build    │  │ integração  │ │
-│  │ debug BT     │  │ Termux java  │  │ docs        │ │
-│  │ bridge I/O   │  │ Permissions  │  │ revisão     │ │
+│  │ session_rec  │  │ APK build    │  │ docs        │ │
+│  │ debug I/O    │  │ Termux java  │  │ revisão     │ │
 │  └──────┬───────┘  └──────┬───────┘  └─────┬───────┘ │
 │         │                 │                 │         │
 │         └─────────┬───────┘                 │         │
@@ -146,8 +118,8 @@ Todo o projeto foi implementado por **agentes pi** trabalhando em paralelo:
 
 | Agente | Responsabilidade | Artefatos |
 |--------|-----------------|-----------|
-| **T470 (Linux)** | Servidor SPP, raw sockets, debug de I/O | `spp_server.py`, `SUCCESS_REPORT.md` |
-| **S23 (Android)** | APK nativo no Termux, build, permissões, UI | `MainActivity.java`, `BridgeService.java`, `build.sh` |
+| **T470 (Linux)** | Pipeline de análise, recepção TCP, session_recorder.py | `session_recorder.py`, `plot_analysis.py` |
+| **S23 (Android)** | APK nativo no Termux, BLE GATT NUS Client, UI | `MainActivity.java`, `BridgeService.java`, `build.sh` |
 | **Reviewer (fanout)** | Análise de erros, documentação, integração | `PLANO.md`, `REVIEW.json`, `README.md` |
 
 ### Comunicação entre agentes
@@ -164,9 +136,9 @@ Todo o projeto foi implementado por **agentes pi** trabalhando em paralelo:
 
 | Camada | Tecnologia | Detalhe |
 |--------|-----------|---------|
-| Socket | `AF_BLUETOOTH` + `BTPROTO_RFCOMM` | Raw socket do kernel Linux |
-| SDP | `org.bluez.ProfileManager1` (D-Bus) | Registro de perfil no BlueZ 5.86 |
-| Bridge | 2 threads bloqueantes | `os.read()` + `sock.recv()/send()` |
+| Recepção TCP | `socket :8090` | Recebe dados JSON do app bridge via localhost |
+| Análise | NumPy + Pandas | Pipeline de detecção de repetições |
+| Plotagem | Matplotlib | Multi-panel com eixo dominante destacado |
 | Runtime | Python 3.14 | Manjaro Linux, kernel 6.12 |
 
 ### Lado S23 (Android/Termux)
@@ -174,34 +146,38 @@ Todo o projeto foi implementado por **agentes pi** trabalhando em paralelo:
 | Camada | Tecnologia | Detalhe |
 |--------|-----------|---------|
 | Build | `aapt2` + `javac` + `dx` + `apksigner` | 100% nativo no Termux ARM64 |
-| Bluetooth | `BluetoothSocket.createRfcommSocket()` | Reflection + fallback por canal |
+| BLE Scan | `BluetoothLeScanner` | Sem ScanFilter — ESP32 anuncia UUID no scan response |
+| BLE GATT | `BluetoothGatt` | connectGatt() + discoverServices() + setCharacteristicNotification() |
+| NUS TX Char | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | Subscribe via notify → dados do ESP32 |
+| NUS RX Char | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | Write sem resposta → comandos phone→ESP32 |
+| MTU | 256 bytes | `gatt.requestMtu(256)`, discoverServices em onMtuChanged |
 | TCP Server | `ServerSocket :8090` | Foreground service |
-| UI | `LinearLayout` programático | Botões dinâmicos via `HashMap<View, Device>` |
+| UI | `LinearLayout` programático | Lista de dispositivos BLE + preview de dados (BroadcastReceiver) |
 | SDK | platform-33 (aapt2) + platform-36 (javac) | SDKs baixados via curl no Termux |
 
-### Ponte de conexão
+### Ponte de conexão (BLE NUS)
 
-| Método | Status | Motivo |
-|--------|--------|--------|
-| SDP UUID padrão (`00001101`) | ❌ | BlueZ reserva internamente |
-| SDP UUID custom (`977c4a04`) | ❌ | SDP discovery não encontrou |
-| Raw RFCOMM canal 4 (reflection) | ✅ | `createRfcommSocket(4)` via reflection |
+| Serviço / Característica | UUID | Função |
+|--------------------------|------|--------|
+| NUS Service | `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` | Nordic UART Service |
+| TX Characteristic (Notify) | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | ESP32 → phone (dados IMU, sensores) |
+| RX Characteristic (Write) | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | Phone → ESP32 (comandos `>cmd:start`, `>cmd:stop`) |
 
 ---
 
-## 🐛 Bugs Resolvidos (18 erros)
+## 🐛 Bugs Resolvidos
 
-### Lado T470 (5 bugs)
+### Migração BLE (Etapa 9 — app Android reescrito)
 
 | # | Bug | Correção |
 |---|-----|----------|
-| 1 | `socket.read()` não existe | `socket.recv()` |
-| 2 | `select()` + `sys.stdin.buffer` (thread) | `os.read("/dev/stdin")` bloqueante |
-| 3 | dbus-python 1.4 não exporta objetos (Python 3.14) | raw socket sem callback D-Bus |
-| 4 | BlueZ 5.86 reserva UUID `0x1101` | UUID custom `977c4a04-...` |
-| 5 | `socket.write()` não existe | `socket.send()` |
+| 1 | Scan sem UUID filter permite encontrar ESP32 | ESP32 anuncia UUID no scan response (31-byte budget separado) |
+| 2 | discoverServices() precisa de GATT conectado | Movido para callback onMtuChanged após requestMtu(256) |
+| 3 | setCharacteristicNotification() requer descriptor escrito | callback onDescriptorWrite() confirma notify ativo |
+| 4 | NUS TX notify entrega payloads fragmentados | Buffer de reassemblagem no onCharacteristicChanged() |
+| 5 | MainActivity sem visibilidade dos dados recebidos | BroadcastReceiver DATA_RECEIVED + TextView de preview |
 
-### Lado S23 (13 bugs — ver `PLANO.md`)
+### Histórico SPP (arquivado — 13 bugs originais, ver `PLANO.md`)
 
 | Categoria | Exemplos |
 |-----------|----------|
@@ -209,7 +185,6 @@ Todo o projeto foi implementado por **agentes pi** trabalhando em paralelo:
 | Permissões | `BLUETOOTH_CONNECT`, `ACCESS_FINE_LOCATION`, `POST_NOTIFICATIONS` |
 | Android 14 | `android:exported`, `foregroundServiceType`, `SecurityException` |
 | Java | Lambdas (`->`) quebram no Android SDK, usar classes anônimas |
-| SDP | UUID padrão reservado → fallback raw RFCOMM channel |
 
 ---
 
@@ -221,7 +196,7 @@ Todo o projeto foi implementado por **agentes pi** trabalhando em paralelo:
 | Tamanho | ~20 KB |
 | minSdkVersion | 26 (Android 8+) |
 | targetSdkVersion | 33 |
-| Permissões | Bluetooth×4, Location×2, Internet, Foreground×2, Notifications |
+| Permissões | Bluetooth×5 (SCAN, CONNECT, ADVERTISE, BLUETOOTH, BLUETOOTH_ADMIN), Location×2, Internet, Foreground×2, Notifications |
 | Assinatura | v2 + v3 (debug keystore) |
 | Build host | Manjaro Linux (JDK 21 + Android SDK) |
 
@@ -230,9 +205,12 @@ Todo o projeto foi implementado por **agentes pi** trabalhando em paralelo:
 ## 🧭 Para o Próximo Agente
 
 ### Estado atual
-- ✅ Comunicação bidirecional SPP funcionando (testado)
+- ✅ App Android migrado de SPP Classic para BLE NUS (GATT Client)
+- ✅ Bridge BLE NUS ↔ TCP :8090 funcionando (scan, connect, notify, write)
+- ✅ MTU 256 negociado, dados IMU trafegam via NUS TX notify
+- ✅ Controle de sessão via botão boot (GPIO0) → >cmd:start/stop
+- ✅ Pipeline de análise com detecção de repetições por acelerômetro
 - ✅ APK buildando no Manjaro (`bt-spp-bridge/app/build.sh`)
-- ✅ Código revisado (práticas, simplificação, segurança → `review/`)
 - ✅ Repositório git no GitHub: [`dduartee/spp-bt-spp-bridge`](https://github.com/dduartee/spp-bt-spp-bridge)
 
 ### Dependências instaladas no T470
@@ -241,22 +219,20 @@ Todo o projeto foi implementado por **agentes pi** trabalhando em paralelo:
 | JDK 21 (Temurin) | `~/jdk21/` |
 | Android SDK | `~/android-sdk/` (platform-33, platform-36, build-tools 30.0.3, platform-tools) |
 | Python 3.14 | sistema (Manjaro) |
-| BlueZ 5.86 | sistema |
 
 ### Pontos de entrada
 | Comando | Função |
 |---------|--------|
-| `python3 spp_server.py` | Servidor SPP (SDP + socket) |
-| `python3 spp_server.py --no-sdp` | Servidor SPP (raw socket apenas) |
-| `S23_MAC=XX:XX:XX:XX:XX:XX python3 spp_client.py` | Modo reverso (T470→S23) |
-| `python3 setup_bt.py` | Configurar adapter Bluetooth (1x) |
-| `bash bt-spp-bridge/app/build.sh` | Build do APK |
+| `bash bt-spp-bridge/app/build.sh` | Build do APK Android |
+| `python3 session_recorder.py` | Receptor TCP + pipeline de análise |
 
 ### Pendências (opcionais)
-- [ ] `RequireAuthentication: False` —安全意识 (ver `review/security.md`)
+- [x] Migração Android de BT SPP Classic → BLE NUS (GATT Client) — completo
+- [x] MTU 256 negociado via requestMtu() — completo
+- [x] Controle de sessão por botão boot ESP32 (GPIO0) — completo
+- [ ] Adicionar suporte a múltiplos dispositivos BLE simultâneos
+- [ ] Cache de dispositivo para reconexão automática
 - [ ] Validar input no bridge (limite de tamanho, rate limit)
-- [ ] Hardcoded MAC `F4:96:34:60:D6:3B` → env var
-- [ ] Implementar `RequireAuthentication: True` (exige pareamento)
 
 ---
 

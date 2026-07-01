@@ -29,6 +29,8 @@ public class MainActivity extends Activity implements View.OnClickListener {
     private HashMap<View, BluetoothDevice> buttonDeviceMap = new HashMap<>();
     private HashMap<String, Boolean> seenDevices = new HashMap<>();
     private boolean isScanning = false;
+    private TextView dataLog;
+    private int totalBytes = 0;
 
     // ── Named inner classes (d8 requer, não suporta anônimas) ──
 
@@ -66,6 +68,20 @@ public class MainActivity extends Activity implements View.OnClickListener {
         super.onCreate(savedInstanceState);
         registerReceiver(discoveryReceiver, new IntentFilter(BluetoothDevice.ACTION_FOUND));
         registerReceiver(discoveryReceiver, new IntentFilter(BluetoothAdapter.ACTION_DISCOVERY_FINISHED));
+
+        // Receiver for BLE data preview from BridgeService
+        registerReceiver(new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                String preview = intent.getStringExtra("preview");
+                int bytes = intent.getIntExtra("bytes", 0);
+                totalBytes += bytes;
+                String log = "📦 " + totalBytes + "B total | " + bytes + "B now\n" + preview;
+                if (preview != null) {
+                    dataLog.setText(log);
+                }
+            }
+        }, new IntentFilter("DATA_RECEIVED"));
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             requestPermissions(new String[]{
@@ -119,6 +135,14 @@ public class MainActivity extends Activity implements View.OnClickListener {
         tcpInfo.setTextSize(12);
         tcpInfo.setPadding(0, 24, 0, 0);
         root.addView(tcpInfo);
+
+        dataLog = new TextView(this);
+        dataLog.setTextSize(10);
+        dataLog.setText("📦 Aguardando dados...");
+        dataLog.setPadding(0, 12, 0, 0);
+        dataLog.setBackgroundColor(0xFF1A1A2E);
+        dataLog.setTextColor(0xFF00FF88);
+        root.addView(dataLog);
 
         scroll.addView(root);
         setContentView(scroll);
