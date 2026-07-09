@@ -49,13 +49,12 @@ class Cli:
             print(f"\n  \u2190 RX: {preview}")
 
     async def run(self):
-        """Main loop — reads stdin in a thread, processes commands."""
-        loop = asyncio.get_event_loop()
-        reader = await self._start_stdin_reader()
+        """Main loop — reads stdin via queue, processes commands."""
+        await self._start_stdin_reader()
 
         while self._running:
             try:
-                line = await reader
+                line = await self._stdin_queue.get()
                 if line is None:
                     break
                 await self._dispatch(line.strip())
@@ -65,14 +64,7 @@ class Cli:
                 self._print({"error": str(e)})
 
     async def _start_stdin_reader(self):
-        """Bridge blocking stdin to async via a thread + Queue.
-
-        stdin is blocking, so we read it in a daemon thread.
-        Each line is pushed onto an asyncio.Queue via call_soon_threadsafe.
-        When EOF or Ctrl+D is received, None is enqueued to signal shutdown.
-        The coroutine returns the first line immediately, and subsequent
-        calls to `await reader` yield subsequent lines.
-        """
+        """Start reading stdin in a daemon thread, bridged via asyncio.Queue."""
         loop = asyncio.get_event_loop()
         q: asyncio.Queue[str | None] = asyncio.Queue()
 
@@ -85,8 +77,7 @@ class Cli:
             loop.call_soon_threadsafe(q.put_nowait, None)
 
         threading.Thread(target=read_stdin, daemon=True).start()
-        # The first get() blocks until the thread delivers a line.
-        return await q.get()
+        self._stdin_queue = q
 
     async def _dispatch(self, line: str):
         """Parse and execute a single command line."""
