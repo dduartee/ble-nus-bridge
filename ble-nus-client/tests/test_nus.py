@@ -40,3 +40,9 @@ def test_serialize_empty_payload():
     msg = NusMessage(payload={})
     raw = serialize_frame(msg)
     assert raw[0] == 0 and raw[1] == 2  # length=2 (just "{}")
+
+
+def test_parse_truncated_payload():
+    """Frame declares more bytes than provided."""
+    frame = bytes([0, 100]) + b"short"
+    assert parse_frame(frame) is None

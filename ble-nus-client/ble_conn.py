@@ -8,7 +8,7 @@ from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 
-from nus import NusUUIDs, NusMessage, parse_frame
+from nus import NusUUIDs, NusMessage, parse_frame, serialize_frame
 
 log = logging.getLogger(__name__)
 
@@ -172,7 +172,6 @@ class BleManager:
             if isinstance(data, str):
                 # Frame raw text: encode → NusMessage → serialize_frame.
                 msg = NusMessage(payload={"data": data})
-                from nus import serialize_frame
                 data = serialize_frame(msg)
             # bytes are sent as-is (caller assumes framing responsibility)
 
@@ -209,13 +208,10 @@ class BleManager:
             try:
                 await self.client.disconnect()
             finally:
-                self._connected = False
-                self.client = None
-                self.device = None
-        else:
-            self._connected = False
-            self.client = None
-            self.device = None
+                pass
+        self._connected = False
+        self.client = None
+        self.device = None
 
     def _on_disconnect(self, client: BleakClient):
         """Internal disconnect callback passed to BleakClient.

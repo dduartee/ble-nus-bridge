@@ -42,3 +42,4 @@ def test_direction_filter():
     h.add(msg2)
     rx = h.get_recent(10, direction="rx")
     assert len(rx) == 1
+    assert msg2 in rx

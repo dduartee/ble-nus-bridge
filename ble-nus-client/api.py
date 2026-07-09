@@ -12,7 +12,7 @@ from aiohttp import web
 
 from ble_conn import BleManager
 from history import MessageHistory
-from nus import NusMessage, serialize_frame
+from nus import NusMessage
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ async def broadcast_ws(msg: NusMessage):
         "timestamp": msg.timestamp,
     })
     dead = []
-    for ws in ws_clients:
+    for ws in list(ws_clients):
         try:
             await ws.send_str(data)
         except Exception:
@@ -69,7 +69,10 @@ async def handle_scan(request: web.Request) -> web.Response:
 
     Scans for BLE devices. Returns a JSON list of discovered peripherals.
     """
-    timeout = float(request.query.get("timeout", "5"))
+    try:
+        timeout = float(request.query.get("timeout", "5"))
+    except (ValueError, TypeError):
+        return web.json_response({"error": "invalid timeout"}, status=400)
     name = request.query.get("name")
     results = await ble.scan(timeout=timeout, name_filter=name)
     return web.json_response({"devices": results})
@@ -92,7 +95,7 @@ async def handle_connect(request: web.Request) -> web.Response:
         return web.json_response({
             "status": "connected",
             "addr": addr,
-            "name": name or ble.device.name if ble.device else None,
+            "name": name or (ble.device.name if ble.device else None),
             "mtu": ble.mtu,
         })
     return web.json_response({"error": "connect failed"}, status=500)
@@ -149,7 +152,10 @@ async def handle_history(request: web.Request) -> web.Response:
     Returns recent BLE messages from the in-memory ring buffer.
     Supports optional direction filtering and limit.
     """
-    limit = int(request.query.get("limit", "50"))
+    try:
+        limit = int(request.query.get("limit", "50"))
+    except (ValueError, TypeError):
+        return web.json_response({"error": "invalid limit"}, status=400)
     direction = request.query.get("direction")
     msgs = history.get_recent(limit, direction=direction)
     return web.json_response({

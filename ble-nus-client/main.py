@@ -66,7 +66,7 @@ def _run_api(args):
 
     app = create_app()
     print(f"BLE NUS API running on http://localhost:{args.port}", file=sys.stderr)
-    web.run_app(app, host="0.0.0.0", port=args.port, print=None)
+    web.run_app(app, host="127.0.0.1", port=args.port, print=None)
 
 
 def _run_cli(args):
