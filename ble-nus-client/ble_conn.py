@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import time
 from typing import Callable
 
 from bleak import BleakClient, BleakScanner
@@ -47,7 +46,7 @@ class BleManager:
 
         Args:
             timeout: Seconds to scan.
-            name_filter: Optional device name substring filter.
+            name_filter: Optional device name exact-match filter.
 
         Returns:
             List of dicts with keys name, addr, rssi.
@@ -139,6 +138,20 @@ class BleManager:
         await self.client.start_notify(tx_uuid, on_tx)
         log.info("Subscribed to NUS TX notifications")
 
+    async def subscribe(self) -> bool:
+        """Subscribe to NUS TX notifications.
+
+        Public wrapper around _subscribe_tx(). Must be called after
+        connect() to begin receiving data from the peripheral.
+
+        Returns:
+            True if subscription was initiated, False if not connected.
+        """
+        if not self.client or not self._connected:
+            return False
+        await self._subscribe_tx()
+        return True
+
     async def send(self, data: str | bytes) -> bool:
         """Send data to NUS RX characteristic.
 
@@ -193,10 +206,16 @@ class BleManager:
     async def disconnect(self):
         """Disconnect from current device."""
         if self.client and self._connected:
-            await self.client.disconnect()
-        self._connected = False
-        self.client = None
-        self.device = None
+            try:
+                await self.client.disconnect()
+            finally:
+                self._connected = False
+                self.client = None
+                self.device = None
+        else:
+            self._connected = False
+            self.client = None
+            self.device = None
 
     def _on_disconnect(self, client: BleakClient):
         """Internal disconnect callback passed to BleakClient.
