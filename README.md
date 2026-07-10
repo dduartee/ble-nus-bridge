@@ -207,6 +207,7 @@ Todo o projeto foi implementado por **agentes pi** trabalhando em paralelo:
 ### Estado atual
 - ✅ App Android migrado de SPP Classic para BLE NUS (GATT Client)
 - ✅ Bridge BLE NUS ↔ TCP :8090 funcionando (scan, connect, notify, write)
+- ✅ BLE NUS Debugger client (T470 ↔ ESP32 direto) — movido para `track-kinesis/tools/ble-nus-client/`
 - ✅ MTU 256 negociado, dados IMU trafegam via NUS TX notify
 - ✅ Controle de sessão via botão boot (GPIO0) → >cmd:start/stop
 - ✅ Pipeline de análise com detecção de repetições por acelerômetro
@@ -225,6 +226,7 @@ Todo o projeto foi implementado por **agentes pi** trabalhando em paralelo:
 |---------|--------|
 | `bash bt-spp-bridge/app/build.sh` | Build do APK Android |
 | `python3 session_recorder.py` | Receptor TCP + pipeline de análise |
+| — | BLE NUS Debugger movido para [`track-kinesis/tools/ble-nus-client/`](https://github.com/dduartee/track-kinesis/tree/main/tools/ble-nus-client) |
 
 ### Pendências (opcionais)
 - [x] Migração Android de BT SPP Classic → BLE NUS (GATT Client) — completo
