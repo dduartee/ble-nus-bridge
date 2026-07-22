@@ -1,53 +1,45 @@
-# Instalação — BLE NUS Bridge
+# Installation -- BLE NUS Bridge
 
-## Pré-requisitos
+## Prerequisites
 
-- **Android Studio** (versão atual recomendada)
-- **Android SDK 34**
-- **JDK 21** (ou 17+ compatível)
-- Dispositivo Android físico com BLE (Android 8.0 / API 26+)
+- Android Studio (current version recommended)
+- Android SDK 34
+- JDK 21 (or 17+)
+- Physical Android device with BLE (Android 8.0 / API 26+)
+- Location services enabled on device (required for BLE scanning)
 
-## Build e Execução pelo Android Studio
+## Build and Run with Android Studio
 
-1. Abra o Android Studio e selecione **File → Open**
-2. Navegue até a pasta do projeto e clique **OK**
-3. Aguarde o Gradle sync completar
-4. Conecte um dispositivo Android via USB com depuração USB ativada
-5. Clique em **Run** (▶) ou pressione `Shift + F10`
+1. Open Android Studio and select **File > Open**
+2. Navigate to the project folder and click **OK**
+3. Wait for Gradle sync to complete
+4. Connect an Android device via USB with USB debugging enabled
+5. Click **Run** or press `Shift + F10`
 
-## Build Manual (linha de comando)
+## Manual Build (command line)
 
 ```bash
-./gradlew assembleDebug
+JAVA_HOME=/opt/android-studio/jbr ./gradlew assembleDebug
 ```
 
-O APK gerado estará em:
+The APK is generated at:
 
 ```
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Instale no dispositivo:
+Install on device:
 
 ```bash
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Permissões Necessárias
+## Runtime Permissions
 
-Ao executar o app pela primeira vez, conceda:
+On first launch, grant the following permissions:
 
-- **Bluetooth** (conexão e scan)
-- **Localização** (necessária para BLE scanning no Android)
-- **Notificações** (Android 13+) — necessária para o foreground service
-
-## Uso
-
-1. Abra o app
-2. Toque em **🔍 Escanear dispositivos**
-3. Selecione o dispositivo `track-kinesis` na lista
-4. Conecte via TCP:
-
-```bash
-nc localhost 8090
-```
+| Permission | Required for | Notes |
+|------------|-------------|-------|
+| Bluetooth (connect + scan) | BLE connection | Android 12+ requires explicit `BLUETOOTH_CONNECT` and `BLUETOOTH_SCAN` |
+| Location | BLE scanning | Android requires location access for BLE scans |
+| Notifications | Foreground service persistence | Android 13+ requires `POST_NOTIFICATIONS` |
